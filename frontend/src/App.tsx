@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import ChatPage from "@/pages/ChatPage";
+import KnowledgeBasePage from "@/pages/KnowledgeBasePage";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 
 function Placeholder({ title }: { title: string }) {
@@ -26,6 +27,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/knowledge-base"
+        element={
+          <ProtectedRoute roles={["admin"]}>
+            <KnowledgeBasePage />
           </ProtectedRoute>
         }
       />

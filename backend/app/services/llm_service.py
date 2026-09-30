@@ -39,3 +39,12 @@ def generate_chat_reply(history: list[dict[str, str]]) -> str:
         temperature=0.3,
     )
     return completion.choices[0].message.content or ""
+
+
+def generate_embeddings(texts: list[str]) -> list[list[float]]:
+    """Returns one embedding vector per input text, preserving order."""
+    if not texts:
+        return []
+    client = _client()
+    response = client.embeddings.create(model=settings.openai_embedding_model, input=texts)
+    return [item.embedding for item in response.data]

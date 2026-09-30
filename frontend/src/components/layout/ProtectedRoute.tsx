@@ -1,8 +1,15 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import type { UserRole } from "@/types/auth";
 
-export default function ProtectedRoute({ children }: { children: ReactNode }) {
+export default function ProtectedRoute({
+  children,
+  roles,
+}: {
+  children: ReactNode;
+  roles?: UserRole[];
+}) {
   const { user, isLoading } = useAuth();
   const location = useLocation();
 
@@ -16,6 +23,10 @@ export default function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (roles && !roles.includes(user.role)) {
+    return <Navigate to="/chat" replace />;
   }
 
   return <>{children}</>;

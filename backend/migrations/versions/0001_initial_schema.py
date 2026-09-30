@@ -76,6 +76,7 @@ def upgrade() -> None:
         sa.Column("file_type", sa.String(20), nullable=False),
         sa.Column("status", sa.String(20), nullable=False, server_default="PENDING"),
         sa.Column("error_message", sa.Text, nullable=True),
+        sa.Column("storage_path", sa.String(1000), nullable=True),
         sa.Column("uploaded_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),

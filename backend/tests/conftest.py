@@ -15,10 +15,13 @@ from app.main import app
 from app.models.user import Organization, User  # noqa: F401
 from app.models.conversation import Conversation, Message  # noqa: F401
 from app.models.evaluation import Feedback  # noqa: F401
+from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # noqa: F401
 
 
 @pytest.fixture()
-def client():
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.storage_service._UPLOAD_DIR", tmp_path / "uploads")
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -33,6 +36,9 @@ def client():
             Conversation.__table__,
             Message.__table__,
             Feedback.__table__,
+            KnowledgeBase.__table__,
+            Document.__table__,
+            DocumentChunk.__table__,
         ],
     )
 

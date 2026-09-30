@@ -18,3 +18,4 @@ htmlcov/
 evaluation_report.json
 evaluation_report.md
 frontend/.vite/
+backend/data/uploads/

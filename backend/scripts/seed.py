@@ -17,7 +17,7 @@ from passlib.context import CryptContext  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
-from app.models.agent import Tool  # noqa: E402
+from app.models.agent import Agent, Playbook, Tool  # noqa: E402
 from app.models.conversation import Intent  # noqa: E402
 from app.models.user import Organization, User, UserRole  # noqa: E402
 from app.services.intent_service import INTENT_LABELS  # noqa: E402
@@ -134,6 +134,43 @@ def seed() -> None:
         for tool_def in TOOLS:
             if not db.query(Tool).filter_by(name=tool_def["name"]).first():
                 db.add(Tool(**tool_def))
+        db.flush()
+
+        # Seed one sample agent + an "Order Tracking" playbook (the example
+        # named in requirements.md FR-11) so the admin UI has something to
+        # show immediately after a fresh `docker compose up`.
+        agent = db.query(Agent).filter_by(organization_id=org.id, name="Default Support Agent").first()
+        if not agent:
+            agent = Agent(
+                organization_id=org.id,
+                name="Default Support Agent",
+                description="General-purpose customer support agent.",
+                system_instructions=(
+                    "You are a helpful, concise customer support agent. Use tools and knowledge "
+                    "base context when available, and escalate to a human when unsure."
+                ),
+                allowed_tools=["get_order", "search_product", "get_product", "check_refund_policy"],
+                confidence_threshold=0.6,
+                escalation_policy={"on_low_confidence": "human_agent", "on_repeated_failure": "human_agent"},
+            )
+            db.add(agent)
+            db.flush()
+            print(f"Created agent: {agent.name}")
+
+        if not db.query(Playbook).filter_by(agent_id=agent.id, intent="order_tracking").first():
+            db.add(
+                Playbook(
+                    agent_id=agent.id,
+                    name="Order Tracking",
+                    intent="order_tracking",
+                    steps=[
+                        {"type": "tool_call", "config": {"tool": "get_order"}},
+                        {"type": "confidence_check", "config": {}},
+                        {"type": "respond", "config": {}},
+                    ],
+                )
+            )
+            print("Created playbook: Order Tracking")
 
         db.commit()
         print("Seed complete.")

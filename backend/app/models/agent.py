@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,10 +19,10 @@ class Agent(Base, UUIDPKMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     system_instructions: Mapped[str] = mapped_column(Text, default="")
-    allowed_tools: Mapped[list] = mapped_column(JSONB, default=list)
-    knowledge_base_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    allowed_tools: Mapped[list] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=list)
+    knowledge_base_ids: Mapped[list] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=list)
     confidence_threshold: Mapped[float] = mapped_column(Float, default=0.6)
-    escalation_policy: Mapped[dict] = mapped_column(JSONB, default=dict)
+    escalation_policy: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=dict)
 
     playbooks: Mapped[list["Playbook"]] = relationship(back_populates="agent", cascade="all, delete-orphan")
 
@@ -35,7 +35,7 @@ class Playbook(Base, UUIDPKMixin, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     intent: Mapped[str] = mapped_column(String(100), nullable=False)
-    steps: Mapped[list] = mapped_column(JSONB, default=list)
+    steps: Mapped[list] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=list)
 
     agent: Mapped["Agent"] = relationship(back_populates="playbooks")
 
@@ -45,7 +45,7 @@ class Tool(Base, UUIDPKMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    input_schema: Mapped[dict] = mapped_column(JSONB, default=dict)
+    input_schema: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=dict)
     permission: Mapped[str] = mapped_column(String(50), default="agent")
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=5)
     enabled: Mapped[bool] = mapped_column(default=True)
@@ -74,8 +74,8 @@ class ToolCall(Base, UUIDPKMixin):
     )
     tool_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tools.id"), nullable=True)
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    input: Mapped[dict] = mapped_column(JSONB, default=dict)
-    output: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    input: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), default=dict)
+    output: Mapped[dict | None] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
     success: Mapped[bool] = mapped_column(default=False)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

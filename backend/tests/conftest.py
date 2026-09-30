@@ -16,6 +16,7 @@ from app.models.user import Organization, User  # noqa: F401
 from app.models.conversation import Conversation, Message  # noqa: F401
 from app.models.evaluation import Feedback  # noqa: F401
 from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # noqa: F401
+from app.models.agent import Agent, AgentRun, Playbook, Tool, ToolCall  # noqa: F401
 
 
 @pytest.fixture()
@@ -46,6 +47,11 @@ def client(tmp_path, monkeypatch):
             KnowledgeBase.__table__,
             Document.__table__,
             DocumentChunk.__table__,
+            Agent.__table__,
+            Playbook.__table__,
+            Tool.__table__,
+            AgentRun.__table__,
+            ToolCall.__table__,
         ],
     )
 

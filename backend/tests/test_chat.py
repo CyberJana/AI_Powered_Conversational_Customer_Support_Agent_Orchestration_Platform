@@ -23,7 +23,10 @@ def test_chat_returns_503_without_openai_key(client):
 
 def test_chat_with_mocked_llm_persists_messages(client):
     token = _signup_and_token(client, email="mocked@example.com")
-    with patch("app.services.chat_service.generate_chat_reply", return_value="Mocked reply"):
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="Mocked reply"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.9)),
+    ):
         resp = client.post(
             "/api/v1/chat",
             json={"conversation_id": None, "message": "What is my order status?"},
@@ -32,6 +35,7 @@ def test_chat_with_mocked_llm_persists_messages(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["answer"] == "Mocked reply"
+    assert body["intent"] == "faq"
     conversation_id = body["conversation_id"]
 
     detail = client.get(
@@ -51,7 +55,10 @@ def test_chat_requires_auth(client):
 
 def test_list_conversations_scoped_to_organization(client):
     token = _signup_and_token(client, email="listuser@example.com")
-    with patch("app.services.chat_service.generate_chat_reply", return_value="ok"):
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="ok"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.9)),
+    ):
         client.post(
             "/api/v1/chat",
             json={"conversation_id": None, "message": "hi"},
@@ -64,7 +71,10 @@ def test_list_conversations_scoped_to_organization(client):
 
 def test_feedback_submission(client):
     token = _signup_and_token(client, email="feedback@example.com")
-    with patch("app.services.chat_service.generate_chat_reply", return_value="ok"):
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="ok"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.9)),
+    ):
         chat_resp = client.post(
             "/api/v1/chat",
             json={"conversation_id": None, "message": "hi"},

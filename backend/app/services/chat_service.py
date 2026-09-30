@@ -5,16 +5,18 @@ retrieval-augmented generation: when a conversation is scoped to a
 knowledge base, the user's message is embedded, the most relevant document
 chunks are retrieved (app.services.rag_service), and the LLM is asked to
 answer using only that context, with citations persisted as `sources`.
-Intent classification, confidence scoring, and automatic escalation are
-layered on in later phases (7/10/11) without changing this module's public
-contract.
+Phase 7 adds intent classification (app.services.intent_service): every
+incoming message is classified into the fixed intent taxonomy and stored on
+both the message and the conversation. Confidence scoring and automatic
+escalation are layered on in later phases (10/11) without changing this
+module's public contract.
 """
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, SourceRef
-from app.services import rag_service
+from app.services import intent_service, rag_service
 from app.services.llm_service import generate_chat_reply, generate_grounded_reply
 
 MAX_HISTORY_MESSAGES = 20
@@ -44,8 +46,17 @@ def _get_or_create_conversation(db: Session, user: User, payload: ChatRequest) -
 def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatResponse:
     conversation = _get_or_create_conversation(db, user, payload)
 
-    user_message = Message(conversation_id=conversation.id, sender="customer", content=payload.message)
+    intent, intent_confidence = intent_service.classify(payload.message)
+
+    user_message = Message(
+        conversation_id=conversation.id,
+        sender="customer",
+        content=payload.message,
+        intent=intent,
+        intent_confidence=intent_confidence,
+    )
     db.add(user_message)
+    conversation.intent = intent
     db.flush()
 
     history_messages = (
@@ -93,7 +104,7 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         answer=answer,
         confidence=None,
         sources=sources,
-        intent=None,
+        intent=intent,
         escalated=False,
     )
 

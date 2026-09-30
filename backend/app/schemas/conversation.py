@@ -11,6 +11,7 @@ class MessageOut(BaseModel):
     content: str
     confidence: float | None
     intent: str | None
+    intent_confidence: float | None
     sources: list | None
     created_at: datetime
 

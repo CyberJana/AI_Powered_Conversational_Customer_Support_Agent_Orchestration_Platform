@@ -38,6 +38,7 @@ class Message(Base, UUIDPKMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     intent: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    intent_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     sources: Mapped[list | None] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -22,6 +22,13 @@ from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # 
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.storage_service._UPLOAD_DIR", tmp_path / "uploads")
 
+    # Starlette caches the built middleware stack (including the in-memory
+    # rate limiter's hit counters) on the FastAPI app instance. Since `app`
+    # is a module-level singleton shared across the whole test session,
+    # force a rebuild here so each test starts with a fresh rate-limit
+    # bucket instead of accumulating hits across the entire test run.
+    app.middleware_stack = None
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},

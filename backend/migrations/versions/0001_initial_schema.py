@@ -119,6 +119,7 @@ def upgrade() -> None:
         sa.Column("content", sa.Text, nullable=False),
         sa.Column("confidence", sa.Float, nullable=True),
         sa.Column("intent", sa.String(100), nullable=True),
+        sa.Column("intent_confidence", sa.Float, nullable=True),
         sa.Column("sources", pg.JSONB, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

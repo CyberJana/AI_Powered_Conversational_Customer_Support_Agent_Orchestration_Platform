@@ -3,6 +3,8 @@
 Raises a clear, actionable error if no API key is configured rather than
 returning a fake/mocked response — see docs/architecture.md.
 """
+import json
+
 from openai import OpenAI
 
 from app.config import get_settings
@@ -73,3 +75,40 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
     client = _client()
     response = client.embeddings.create(model=settings.openai_embedding_model, input=texts)
     return [item.embedding for item in response.data]
+
+
+def classify_intent(message: str, intent_labels: list[str]) -> tuple[str, float]:
+    """Classifies `message` into one of `intent_labels` using a JSON-constrained
+    chat completion. Returns (intent_name, confidence in [0, 1]). Falls back to
+    ("unknown", 0.0) if the model's output can't be parsed as one of the
+    allowed labels — this is a parsing safeguard, not a fabricated answer; the
+    underlying LLM call still must succeed (raises OpenAIKeyMissingError if
+    not configured).
+    """
+    client = _client()
+    system_prompt = (
+        "Classify the user's message into exactly one of these intents: "
+        f"{', '.join(intent_labels)}. "
+        'Respond with strict JSON only: {"intent": "<label>", "confidence": <0-1 float>}. '
+        'Use "unknown" if none of the other labels clearly apply.'
+    )
+    completion = client.chat.completions.create(
+        model=settings.openai_chat_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message},
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+    )
+    raw = completion.choices[0].message.content or "{}"
+    try:
+        parsed = json.loads(raw)
+        intent = str(parsed.get("intent", "unknown"))
+        confidence = float(parsed.get("confidence", 0.0))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return "unknown", 0.0
+
+    if intent not in intent_labels:
+        return "unknown", 0.0
+    return intent, max(0.0, min(1.0, confidence))

@@ -20,20 +20,26 @@ from app.database import SessionLocal  # noqa: E402
 from app.models.agent import Tool  # noqa: E402
 from app.models.conversation import Intent  # noqa: E402
 from app.models.user import Organization, User, UserRole  # noqa: E402
+from app.services.intent_service import INTENT_LABELS  # noqa: E402
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-INTENTS = [
-    ("faq", "General frequently-asked question"),
-    ("order_tracking", "Customer wants to track an order's status"),
-    ("refund", "Customer requests a refund"),
-    ("cancellation", "Customer wants to cancel an order or subscription"),
-    ("product_search", "Customer is searching for a product"),
-    ("product_recommendation", "Customer wants a product recommendation"),
-    ("complaint", "Customer is filing a complaint"),
-    ("human_agent_request", "Customer explicitly requests a human agent"),
-    ("unknown", "Intent could not be confidently classified"),
-]
+_INTENT_DESCRIPTIONS = {
+    "faq": "General frequently-asked question",
+    "order_tracking": "Customer wants to track an order's status",
+    "refund": "Customer requests a refund",
+    "cancellation": "Customer wants to cancel an order or subscription",
+    "product_search": "Customer is searching for a product",
+    "product_recommendation": "Customer wants a product recommendation",
+    "complaint": "Customer is filing a complaint",
+    "human_agent_request": "Customer explicitly requests a human agent",
+    "unknown": "Intent could not be confidently classified",
+}
+
+# Sourced from app.services.intent_service.INTENT_LABELS (the taxonomy the
+# LLM classifier is constrained to) so the seeded `intents` table can never
+# drift out of sync with what the classifier is allowed to return.
+INTENTS = [(name, _INTENT_DESCRIPTIONS[name]) for name in INTENT_LABELS]
 
 TOOLS = [
     {

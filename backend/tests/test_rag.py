@@ -32,6 +32,7 @@ def test_chat_with_sufficient_context_returns_grounded_answer_and_sources(client
     with (
         patch("app.services.rag_service.generate_embeddings", return_value=[[1.0, 0.0, 0.0]]),
         patch("app.services.chat_service.generate_grounded_reply", return_value="Refunds take 5 days [1]."),
+        patch("app.services.intent_service.classify", return_value=("refund", 0.9)),
     ):
         resp = client.post(
             "/api/v1/chat",
@@ -50,7 +51,10 @@ def test_chat_with_insufficient_context_returns_fallback(client):
     token = _signup_and_token(client, email="insufficient@example.com")
     kb_id = _create_kb_with_document(client, token, embedding=[1.0, 0.0, 0.0])
 
-    with patch("app.services.rag_service.generate_embeddings", return_value=[[0.0, 1.0, 0.0]]):
+    with (
+        patch("app.services.rag_service.generate_embeddings", return_value=[[0.0, 1.0, 0.0]]),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.4)),
+    ):
         resp = client.post(
             "/api/v1/chat",
             json={"conversation_id": None, "message": "Unrelated question", "knowledge_base_id": kb_id},
@@ -65,7 +69,10 @@ def test_chat_with_insufficient_context_returns_fallback(client):
 
 def test_chat_without_knowledge_base_id_uses_plain_reply(client):
     token = _signup_and_token(client, email="plain@example.com", role="customer")
-    with patch("app.services.chat_service.generate_chat_reply", return_value="Plain reply"):
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="Plain reply"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.9)),
+    ):
         resp = client.post(
             "/api/v1/chat",
             json={"conversation_id": None, "message": "hi"},

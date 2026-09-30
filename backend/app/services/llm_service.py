@@ -41,6 +41,31 @@ def generate_chat_reply(history: list[dict[str, str]]) -> str:
     return completion.choices[0].message.content or ""
 
 
+GROUNDED_SYSTEM_PROMPT = (
+    "You are a helpful, honest customer support assistant for AICSP. "
+    "Answer the user's question using ONLY the numbered context passages below. "
+    "Cite the passage numbers you relied on in square brackets, e.g. [1]. "
+    "If the context does not contain enough information to answer, say so "
+    "plainly instead of guessing."
+)
+
+
+def generate_grounded_reply(history: list[dict[str, str]], context_passages: list[str]) -> str:
+    """history: list of {"role": "user"|"assistant", "content": str}, oldest first.
+    context_passages: retrieved knowledge-base chunk texts, most relevant first.
+    """
+    client = _client()
+    context_block = "\n\n".join(f"[{i + 1}] {passage}" for i, passage in enumerate(context_passages))
+    system_prompt = f"{GROUNDED_SYSTEM_PROMPT}\n\nContext:\n{context_block}"
+    messages = [{"role": "system", "content": system_prompt}, *history]
+    completion = client.chat.completions.create(
+        model=settings.openai_chat_model,
+        messages=messages,
+        temperature=0.2,
+    )
+    return completion.choices[0].message.content or ""
+
+
 def generate_embeddings(texts: list[str]) -> list[list[float]]:
     """Returns one embedding vector per input text, preserving order."""
     if not texts:

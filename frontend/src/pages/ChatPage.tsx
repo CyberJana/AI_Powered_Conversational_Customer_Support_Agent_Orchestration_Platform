@@ -37,7 +37,7 @@ export default function ChatPage() {
       setConversationId(response.conversation_id);
       setMessages((prev) => [
         ...prev,
-        { id: response.message_id, sender: "assistant", content: response.answer },
+        { id: response.message_id, sender: "assistant", content: response.answer, sources: response.sources },
       ]);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
@@ -80,7 +80,16 @@ export default function ChatPage() {
                   : "mr-auto max-w-lg rounded-lg bg-muted px-4 py-2 text-sm text-foreground"
               }
             >
-              {message.content}
+              <p>{message.content}</p>
+              {message.sources && message.sources.length > 0 && (
+                <ul className="mt-2 space-y-1 border-t border-border/50 pt-2 text-xs text-muted-foreground">
+                  {message.sources.map((source, index) => (
+                    <li key={source.chunk_id}>
+                      [{index + 1}] {source.snippet}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>

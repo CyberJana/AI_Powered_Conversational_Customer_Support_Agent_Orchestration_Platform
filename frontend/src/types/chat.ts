@@ -25,4 +25,5 @@ export interface ChatMessage {
   id: string;
   sender: "customer" | "assistant" | "agent";
   content: string;
+  sources?: ChatSource[];
 }

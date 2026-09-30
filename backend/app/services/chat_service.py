@@ -1,20 +1,27 @@
 """Chat orchestration: conversation lifecycle + message persistence.
 
-Phase 4 wires a direct LLM reply using conversation history. Intent
-classification, RAG retrieval/sources, confidence scoring, and automatic
-escalation are layered on in later phases (6/7/9/10) without changing
-this module's public contract.
+Phase 4 wired a direct LLM reply using conversation history. Phase 6 adds
+retrieval-augmented generation: when a conversation is scoped to a
+knowledge base, the user's message is embedded, the most relevant document
+chunks are retrieved (app.services.rag_service), and the LLM is asked to
+answer using only that context, with citations persisted as `sources`.
+Intent classification, confidence scoring, and automatic escalation are
+layered on in later phases (7/10/11) without changing this module's public
+contract.
 """
-import uuid
-
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation, Message
 from app.models.user import User
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.llm_service import generate_chat_reply
+from app.schemas.chat import ChatRequest, ChatResponse, SourceRef
+from app.services import rag_service
+from app.services.llm_service import generate_chat_reply, generate_grounded_reply
 
 MAX_HISTORY_MESSAGES = 20
+INSUFFICIENT_CONTEXT_ANSWER = (
+    "I don't have enough information in the knowledge base to answer that confidently. "
+    "Could you rephrase, or would you like me to connect you with a human agent?"
+)
 
 
 def _get_or_create_conversation(db: Session, user: User, payload: ChatRequest) -> Conversation:
@@ -54,9 +61,28 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         for m in history_messages
     ]
 
-    answer = generate_chat_reply(history)
+    knowledge_base_id = payload.knowledge_base_id or conversation.knowledge_base_id
+    sources: list[SourceRef] = []
 
-    assistant_message = Message(conversation_id=conversation.id, sender="assistant", content=answer)
+    if knowledge_base_id:
+        retrieved = rag_service.retrieve(db, knowledge_base_id, payload.message)
+        if rag_service.has_sufficient_context(retrieved):
+            answer = generate_grounded_reply(history, [c.content for c in retrieved])
+            sources = [
+                SourceRef(document_id=c.document_id, chunk_id=c.chunk_id, snippet=c.content[:300], score=c.score)
+                for c in retrieved
+            ]
+        else:
+            answer = INSUFFICIENT_CONTEXT_ANSWER
+    else:
+        answer = generate_chat_reply(history)
+
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        sender="assistant",
+        content=answer,
+        sources=[s.model_dump(mode="json") for s in sources] or None,
+    )
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
@@ -66,7 +92,8 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         conversation_id=conversation.id,
         answer=answer,
         confidence=None,
-        sources=[],
+        sources=sources,
         intent=None,
         escalated=False,
     )
+

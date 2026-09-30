@@ -13,6 +13,8 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.models.user import Organization, User  # noqa: F401
+from app.models.conversation import Conversation, Message  # noqa: F401
+from app.models.evaluation import Feedback  # noqa: F401
 
 
 @pytest.fixture()
@@ -23,7 +25,16 @@ def client():
         poolclass=StaticPool,
     )
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-    Base.metadata.create_all(bind=engine, tables=[Organization.__table__, User.__table__])
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            Organization.__table__,
+            User.__table__,
+            Conversation.__table__,
+            Message.__table__,
+            Feedback.__table__,
+        ],
+    )
 
     def override_get_db():
         db = TestingSessionLocal()

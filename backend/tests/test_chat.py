@@ -87,3 +87,58 @@ def test_feedback_submission(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 204
+
+
+def _auth(token):
+    return {"Authorization": "Bearer " + token}
+
+
+def test_chat_confidence_above_threshold_is_not_escalated(client):
+    token = _signup_and_token(client, email="highconf@example.com")
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="ok"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.9)),
+    ):
+        resp = client.post(
+            "/api/v1/chat",
+            json={"conversation_id": None, "message": "What are your hours?"},
+            headers=_auth(token),
+        )
+    body = resp.json()
+    assert body["confidence"] == 0.9
+    assert body["escalated"] is False
+
+
+def test_chat_low_intent_confidence_triggers_threshold_escalation(client):
+    token = _signup_and_token(client, email="lowconf@example.com")
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="ok"),
+        patch("app.services.intent_service.classify", return_value=("faq", 0.2)),
+    ):
+        resp = client.post(
+            "/api/v1/chat",
+            json={"conversation_id": None, "message": "What are your hours?"},
+            headers=_auth(token),
+        )
+    body = resp.json()
+    assert body["confidence"] == 0.2
+    assert body["escalated"] is True
+
+    detail = client.get(f"/api/v1/conversations/{body['conversation_id']}", headers=_auth(token))
+    assert detail.json()["status"] == "escalated"
+
+
+def test_chat_human_agent_request_always_escalates(client):
+    token = _signup_and_token(client, email="humanrequest@example.com")
+    with (
+        patch("app.services.chat_service.generate_chat_reply", return_value="Connecting you now."),
+        patch("app.services.intent_service.classify", return_value=("human_agent_request", 0.95)),
+    ):
+        resp = client.post(
+            "/api/v1/chat",
+            json={"conversation_id": None, "message": "I want to speak to a human"},
+            headers=_auth(token),
+        )
+    body = resp.json()
+    # High confidence, but the explicit trigger forces escalation regardless.
+    assert body["escalated"] is True

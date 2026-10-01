@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = 60
     prompt_injection_threshold: float = 0.6
+    default_confidence_threshold: float = 0.6
 
     seed_admin_email: str = "admin@example.com"
     seed_admin_password: str = "ChangeMe123!"

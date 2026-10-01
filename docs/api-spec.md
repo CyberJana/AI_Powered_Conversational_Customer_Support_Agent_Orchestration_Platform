@@ -35,7 +35,7 @@ Response: `{ "id", "email", "role", "organization_id" }`
 Roles: customer, agent, admin
 Request:
 ```json
-{ "conversation_id": "uuid|null", "message": "string", "knowledge_base_id": "uuid|null" }
+{ "conversation_id": "uuid|null", "message": "string", "knowledge_base_id": "uuid|null", "agent_id": "uuid|null" }
 ```
 Response `200`:
 ```json
@@ -49,6 +49,7 @@ Response `200`:
   "escalated": false
 }
 ```
+`confidence` is a composite score (FR-13) blending intent confidence, retrieval relevance, source coverage, citation grounding, and tool success. `escalated` is true when that score is below the agent's (or default) confidence threshold, or an explicit FR-14 trigger fires (human agent request, sensitive topic, tool failure, security event, repeated low confidence) - in which case a real `Escalation` row is created (see below).
 
 ### GET /api/v1/conversations
 List conversations (paginated, filterable by status/customer).

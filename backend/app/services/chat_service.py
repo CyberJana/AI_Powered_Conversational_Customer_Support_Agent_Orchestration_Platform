@@ -12,19 +12,28 @@ calling (FR-11/FR-12): when the conversation is linked to an Agent and the
 classified intent matches one of that Agent's Playbooks, the playbook's
 declarative steps (tool_call/rag_retrieval/confidence_check/respond) are
 executed, with every tool invocation audit-logged via AgentRun/ToolCall
-rows. Confidence scoring and automatic escalation are layered on in Phase
-10/11 without changing this module's public contract.
+rows. Phase 10 adds composite confidence scoring and automatic escalation
+(FR-13/FR-14, app.services.confidence_service): every assistant reply gets
+a confidence score derived from real signals (intent confidence, retrieval
+relevance, source coverage, citation grounding, tool success), and
+conversations below the applicable threshold - or matching an explicit
+trigger (human agent request, sensitive topic, tool failure, security
+event, repeated low confidence) - get a real Escalation row.
 """
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.agent import Agent, AgentRun, Playbook, Tool
 from app.models.conversation import Conversation, Message
+from app.models.evaluation import Escalation, SecurityEvent
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, SourceRef
-from app.services import intent_service, rag_service, tool_service
+from app.services import confidence_service, intent_service, rag_service, tool_service
 from app.services.llm_service import extract_tool_arguments, generate_chat_reply, generate_grounded_reply
+
+settings = get_settings()
 
 MAX_HISTORY_MESSAGES = 20
 INSUFFICIENT_CONTEXT_ANSWER = (
@@ -59,9 +68,10 @@ def _get_or_create_conversation(db: Session, user: User, payload: ChatRequest) -
 
 def _run_playbook(
     db: Session, conversation: Conversation, playbook: Playbook, message: str
-) -> tuple[list[dict], list[SourceRef]]:
+) -> tuple[list[dict], list[SourceRef], list[rag_service.RetrievedChunk], bool]:
     """Executes a Playbook's declarative steps, returning (tool_outputs,
-    rag_sources) for the final `respond` step to incorporate. Every
+    rag_sources, retrieved_chunks, rag_attempted) for the final `respond`
+    step - and Phase 10's confidence scoring - to incorporate. Every
     tool_call step is validated/executed/audit-logged via tool_service.
     """
     agent_run = AgentRun(conversation_id=conversation.id, agent_id=playbook.agent_id, playbook_id=playbook.id)
@@ -70,6 +80,8 @@ def _run_playbook(
 
     tool_outputs: list[dict] = []
     sources: list[SourceRef] = []
+    retrieved_chunks: list[rag_service.RetrievedChunk] = []
+    rag_attempted = False
     ctx = tool_service.ToolContext(organization_id=conversation.organization_id, conversation_id=conversation.id)
     failed = False
 
@@ -92,21 +104,23 @@ def _run_playbook(
         elif step_type == "rag_retrieval":
             kb_id = config.get("knowledge_base_id") or conversation.knowledge_base_id
             if kb_id:
-                retrieved = rag_service.retrieve(db, kb_id, message)
+                rag_attempted = True
+                retrieved_chunks = rag_service.retrieve(db, kb_id, message)
                 sources = [
                     SourceRef(document_id=c.document_id, chunk_id=c.chunk_id, snippet=c.content[:300], score=c.score)
-                    for c in retrieved
+                    for c in retrieved_chunks
                 ]
         elif step_type == "confidence_check":
-            # No-op placeholder: real confidence scoring/escalation lands in
-            # Phase 10 (FR-13/FR-14) without changing this loop's contract.
+            # No-op placeholder: Phase 10 computes the real composite score
+            # in handle_chat_message once all steps have run, so this step
+            # type stays a declarative marker in the playbook definition.
             pass
         # "respond" is handled by the caller once all prior steps have run.
 
     agent_run.status = "failed" if failed else "completed"
     agent_run.finished_at = datetime.now(timezone.utc)
     db.flush()
-    return tool_outputs, sources
+    return tool_outputs, sources, retrieved_chunks, rag_attempted
 
 
 def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatResponse:
@@ -140,6 +154,9 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
 
     knowledge_base_id = payload.knowledge_base_id or conversation.knowledge_base_id
     sources: list[SourceRef] = []
+    tool_outputs: list[dict] = []
+    retrieved_chunks: list[rag_service.RetrievedChunk] = []
+    rag_attempted = False
 
     playbook = None
     if conversation.agent_id:
@@ -148,40 +165,105 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         )
 
     if playbook:
-        tool_outputs, sources = _run_playbook(db, conversation, playbook, payload.message)
+        tool_outputs, sources, retrieved_chunks, rag_attempted = _run_playbook(
+            db, conversation, playbook, payload.message
+        )
         context_passages = [f"Tool '{t['tool']}' result: {t['output'] or t['error']}" for t in tool_outputs]
         if knowledge_base_id and not sources:
-            retrieved = rag_service.retrieve(db, knowledge_base_id, payload.message)
-            if rag_service.has_sufficient_context(retrieved):
+            rag_attempted = True
+            retrieved_chunks = rag_service.retrieve(db, knowledge_base_id, payload.message)
+            if rag_service.has_sufficient_context(retrieved_chunks):
                 sources = [
                     SourceRef(document_id=c.document_id, chunk_id=c.chunk_id, snippet=c.content[:300], score=c.score)
-                    for c in retrieved
+                    for c in retrieved_chunks
                 ]
-                context_passages.extend(c.content for c in retrieved)
+                context_passages.extend(c.content for c in retrieved_chunks)
         context_passages.extend(s.snippet for s in sources if s.snippet not in context_passages)
         answer = (
             generate_grounded_reply(history, context_passages) if context_passages else generate_chat_reply(history)
         )
     elif knowledge_base_id:
-        retrieved = rag_service.retrieve(db, knowledge_base_id, payload.message)
-        if rag_service.has_sufficient_context(retrieved):
-            answer = generate_grounded_reply(history, [c.content for c in retrieved])
+        rag_attempted = True
+        retrieved_chunks = rag_service.retrieve(db, knowledge_base_id, payload.message)
+        if rag_service.has_sufficient_context(retrieved_chunks):
+            answer = generate_grounded_reply(history, [c.content for c in retrieved_chunks])
             sources = [
                 SourceRef(document_id=c.document_id, chunk_id=c.chunk_id, snippet=c.content[:300], score=c.score)
-                for c in retrieved
+                for c in retrieved_chunks
             ]
         else:
             answer = INSUFFICIENT_CONTEXT_ANSWER
     else:
         answer = generate_chat_reply(history)
 
+    # --- Phase 10: composite confidence + escalation (FR-13/FR-14) ---
+    if rag_attempted:
+        retrieval_relevance = retrieved_chunks[0].score if retrieved_chunks else 0.0
+        source_coverage = len(retrieved_chunks) / rag_service.TOP_K
+    else:
+        retrieval_relevance = None
+        source_coverage = None
+    grounding = confidence_service.grounding_score(answer, len(sources)) if sources else None
+    tool_success_rate = (
+        sum(1 for t in tool_outputs if t["success"]) / len(tool_outputs) if tool_outputs else None
+    )
+
+    confidence = confidence_service.compute_confidence(
+        confidence_service.ConfidenceSignals(
+            intent_confidence=intent_confidence,
+            retrieval_relevance=retrieval_relevance,
+            source_coverage=source_coverage,
+            grounding_score=grounding,
+            tool_success_rate=tool_success_rate,
+        )
+    )
+
+    threshold = settings.default_confidence_threshold
+    if conversation.agent_id:
+        agent = db.get(Agent, conversation.agent_id)
+        if agent:
+            threshold = agent.confidence_threshold
+
+    recent_confidences = (
+        db.query(Message.confidence)
+        .filter(Message.conversation_id == conversation.id, Message.sender == "assistant")
+        .order_by(Message.created_at.desc())
+        .limit(confidence_service.REPEATED_FAILURE_WINDOW)
+        .all()
+    )
+    repeated_low_confidence = len(recent_confidences) == confidence_service.REPEATED_FAILURE_WINDOW and all(
+        c is not None and c < threshold for (c,) in recent_confidences
+    )
+    has_security_event = (
+        db.query(SecurityEvent.id).filter(SecurityEvent.conversation_id == conversation.id).first() is not None
+    )
+    tool_failed = any(not t["success"] for t in tool_outputs)
+
+    trigger = confidence_service.detect_trigger(
+        intent=intent,
+        message=payload.message,
+        tool_failed=tool_failed,
+        has_security_event=has_security_event,
+        repeated_low_confidence=repeated_low_confidence,
+    )
+    escalated = trigger.should_escalate or confidence < threshold
+    escalation_reason = trigger.reason or (
+        f"Composite confidence {confidence:.2f} is below the {threshold:.2f} threshold."
+    )
+
     assistant_message = Message(
         conversation_id=conversation.id,
         sender="assistant",
         content=answer,
+        confidence=confidence,
         sources=[s.model_dump(mode="json") for s in sources] or None,
     )
     db.add(assistant_message)
+
+    if escalated:
+        conversation.status = "escalated"
+        db.add(Escalation(conversation_id=conversation.id, reason=escalation_reason, ai_confidence=confidence))
+
     db.commit()
     db.refresh(assistant_message)
 
@@ -189,9 +271,9 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         message_id=assistant_message.id,
         conversation_id=conversation.id,
         answer=answer,
-        confidence=None,
+        confidence=confidence,
         sources=sources,
         intent=intent,
-        escalated=False,
+        escalated=escalated,
     )
 

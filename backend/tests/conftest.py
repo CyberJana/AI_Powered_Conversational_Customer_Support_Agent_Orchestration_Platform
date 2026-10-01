@@ -14,7 +14,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models.user import Organization, User  # noqa: F401
 from app.models.conversation import Conversation, Message  # noqa: F401
-from app.models.evaluation import Escalation, Feedback  # noqa: F401
+from app.models.evaluation import Escalation, Feedback, SecurityEvent  # noqa: F401
 from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # noqa: F401
 from app.models.agent import Agent, AgentRun, Playbook, Tool, ToolCall  # noqa: F401
 from app.models.commerce import Order, Product  # noqa: F401
@@ -46,6 +46,7 @@ def _db_engine():
             Product.__table__,
             Order.__table__,
             Escalation.__table__,
+            SecurityEvent.__table__,
         ],
     )
     yield engine

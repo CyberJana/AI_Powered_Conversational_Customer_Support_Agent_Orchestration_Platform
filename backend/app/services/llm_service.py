@@ -3,7 +3,10 @@
 Raises a clear, actionable error if no API key is configured rather than
 returning a fake/mocked response — see docs/architecture.md.
 """
+import contextvars
 import json
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 from openai import OpenAI
 
@@ -20,6 +23,49 @@ SYSTEM_PROMPT = (
 
 class OpenAIKeyMissingError(RuntimeError):
     """Raised when a real OpenAI call is attempted without a configured API key."""
+
+
+@dataclass
+class UsageTracker:
+    """Accumulates real token-usage counters reported by OpenAI responses
+    across every call made within an active `track_usage()` block - used by
+    the evaluation harness (FR-15) to report genuine token consumption
+    rather than an estimate.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def add(self, usage) -> None:
+        if usage is None:
+            return
+        self.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+        self.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+        self.total_tokens += getattr(usage, "total_tokens", 0) or 0
+
+
+_usage_ctx: contextvars.ContextVar[UsageTracker | None] = contextvars.ContextVar("_usage_ctx", default=None)
+
+
+@contextmanager
+def track_usage():
+    """Context manager that collects real OpenAI token usage for every
+    llm_service call made inside it. Usage reported outside an active block
+    is simply discarded (no tracker to add to).
+    """
+    tracker = UsageTracker()
+    token = _usage_ctx.set(tracker)
+    try:
+        yield tracker
+    finally:
+        _usage_ctx.reset(token)
+
+
+def _record_usage(usage) -> None:
+    tracker = _usage_ctx.get()
+    if tracker is not None:
+        tracker.add(usage)
 
 
 def _client() -> OpenAI:
@@ -40,6 +86,7 @@ def generate_chat_reply(history: list[dict[str, str]]) -> str:
         messages=messages,
         temperature=0.3,
     )
+    _record_usage(completion.usage)
     return completion.choices[0].message.content or ""
 
 
@@ -65,6 +112,7 @@ def generate_grounded_reply(history: list[dict[str, str]], context_passages: lis
         messages=messages,
         temperature=0.2,
     )
+    _record_usage(completion.usage)
     return completion.choices[0].message.content or ""
 
 
@@ -74,6 +122,7 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
         return []
     client = _client()
     response = client.embeddings.create(model=settings.openai_embedding_model, input=texts)
+    _record_usage(response.usage)
     return [item.embedding for item in response.data]
 
 
@@ -102,6 +151,7 @@ def classify_intent(message: str, intent_labels: list[str]) -> tuple[str, float]
         response_format={"type": "json_object"},
     )
     raw = completion.choices[0].message.content or "{}"
+    _record_usage(completion.usage)
     try:
         parsed = json.loads(raw)
         intent = str(parsed.get("intent", "unknown"))
@@ -138,6 +188,7 @@ def extract_tool_arguments(message: str, tool_name: str, tool_description: str, 
         response_format={"type": "json_object"},
     )
     raw = completion.choices[0].message.content or "{}"
+    _record_usage(completion.usage)
     try:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}

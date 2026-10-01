@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.conversation import Conversation, Message
 from app.models.evaluation import Feedback
+from app.models.learning import ReviewQueueItem
 from app.models.user import User
 from app.schemas.conversation import (
     ConversationDetail,
@@ -76,5 +77,33 @@ def submit_feedback(
             comment=payload.comment,
         )
     )
+
+    if payload.rating == "down" and message.sender == "assistant":
+        # FR-16: negative feedback on an assistant reply is captured for
+        # human review alongside low-confidence/failed-tool/failed-retrieval
+        # turns, independent of whether the confidence engine itself
+        # flagged this turn.
+        prior_customer_message = (
+            db.query(Message)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.sender == "customer",
+                Message.created_at <= message.created_at,
+            )
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+        db.add(
+            ReviewQueueItem(
+                organization_id=conversation.organization_id,
+                conversation_id=conversation_id,
+                message_id=message.id,
+                source_type="negative_feedback",
+                input_text=prior_customer_message.content if prior_customer_message else "",
+                output_text=message.content,
+                context={"comment": payload.comment},
+            )
+        )
+
     db.commit()
 

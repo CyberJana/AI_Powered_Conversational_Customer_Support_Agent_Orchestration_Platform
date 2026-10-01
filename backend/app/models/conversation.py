@@ -22,6 +22,9 @@ class Conversation(Base, UUIDPKMixin, TimestampMixin):
     knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="SET NULL"), nullable=True
     )
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(20), default="open")
     intent: Mapped[str | None] = mapped_column(String(100), nullable=True)
 

@@ -18,6 +18,7 @@ from passlib.context import CryptContext  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.models.agent import Agent, Playbook, Tool  # noqa: E402
+from app.models.commerce import Order, Product  # noqa: E402
 from app.models.conversation import Intent  # noqa: E402
 from app.models.user import Organization, User, UserRole  # noqa: E402
 from app.services.intent_service import INTENT_LABELS  # noqa: E402
@@ -171,6 +172,74 @@ def seed() -> None:
                 )
             )
             print("Created playbook: Order Tracking")
+
+        # Minimal demo e-commerce rows so the get_order/search_product/
+        # get_product/check_refund_policy tools have real data to query
+        # (FR-12: no fabricated tool results).
+        if not db.query(Product).filter_by(organization_id=org.id, sku="SKU-100").first():
+            db.add_all(
+                [
+                    Product(
+                        organization_id=org.id,
+                        sku="SKU-100",
+                        name="Wireless Noise-Cancelling Headphones",
+                        description="Over-ear Bluetooth headphones with active noise cancellation.",
+                        price=149.99,
+                        stock_quantity=42,
+                    ),
+                    Product(
+                        organization_id=org.id,
+                        sku="SKU-200",
+                        name="Mechanical Keyboard",
+                        description="Tenkeyless mechanical keyboard with hot-swappable switches.",
+                        price=89.99,
+                        stock_quantity=0,
+                    ),
+                    Product(
+                        organization_id=org.id,
+                        sku="SKU-300",
+                        name="USB-C Charging Cable (2m)",
+                        description="Braided USB-C to USB-C cable, 100W PD support.",
+                        price=14.99,
+                        stock_quantity=250,
+                    ),
+                ]
+            )
+            print("Created demo products")
+
+        if not db.query(Order).filter_by(organization_id=org.id, order_number="ORD-1001").first():
+            db.add_all(
+                [
+                    Order(
+                        organization_id=org.id,
+                        customer_id=admin.id,
+                        order_number="ORD-1001",
+                        status="delivered",
+                        total_amount=149.99,
+                        items=[{"sku": "SKU-100", "name": "Wireless Noise-Cancelling Headphones", "quantity": 1}],
+                    ),
+                    Order(
+                        organization_id=org.id,
+                        customer_id=admin.id,
+                        order_number="ORD-1002",
+                        status="shipped",
+                        total_amount=104.98,
+                        items=[
+                            {"sku": "SKU-200", "name": "Mechanical Keyboard", "quantity": 1},
+                            {"sku": "SKU-300", "name": "USB-C Charging Cable (2m)", "quantity": 1},
+                        ],
+                    ),
+                    Order(
+                        organization_id=org.id,
+                        customer_id=admin.id,
+                        order_number="ORD-1003",
+                        status="cancelled",
+                        total_amount=14.99,
+                        items=[{"sku": "SKU-300", "name": "USB-C Charging Cable (2m)", "quantity": 1}],
+                    ),
+                ]
+            )
+            print("Created demo orders")
 
         db.commit()
         print("Seed complete.")

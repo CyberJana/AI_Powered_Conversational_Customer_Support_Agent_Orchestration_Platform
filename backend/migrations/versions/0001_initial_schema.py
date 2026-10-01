@@ -158,6 +158,44 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
 
+    # agents must exist before this FK can be added; conversations was
+    # created earlier in this script (before the agent/playbook tables).
+    op.add_column("conversations", sa.Column("agent_id", pg.UUID(as_uuid=True), nullable=True))
+    op.create_foreign_key(
+        "fk_conversations_agent_id", "conversations", "agents", ["agent_id"], ["id"], ondelete="SET NULL"
+    )
+
+    op.create_table(
+        "products",
+        sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", pg.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("sku", sa.String(50), nullable=False),
+        sa.Column("name", sa.String(255), nullable=False),
+        sa.Column("description", sa.String(1000), server_default=""),
+        sa.Column("price", sa.Float, server_default="0"),
+        sa.Column("stock_quantity", sa.Integer, server_default="0"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_products_organization_id", "products", ["organization_id"])
+    op.create_index("ix_products_sku", "products", ["sku"])
+
+    op.create_table(
+        "orders",
+        sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", pg.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("customer_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("order_number", sa.String(50), nullable=False),
+        sa.Column("status", sa.String(20), server_default="placed"),
+        sa.Column("total_amount", sa.Float, server_default="0"),
+        sa.Column("placed_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("items", pg.JSONB, server_default="[]"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_orders_organization_id", "orders", ["organization_id"])
+    op.create_index("ix_orders_order_number", "orders", ["order_number"])
+
     op.create_table(
         "tools",
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
@@ -279,6 +317,10 @@ def downgrade() -> None:
     op.drop_table("evaluations")
     op.drop_table("tool_calls")
     op.drop_table("agent_runs")
+    op.drop_table("orders")
+    op.drop_table("products")
+    op.drop_constraint("fk_conversations_agent_id", "conversations", type_="foreignkey")
+    op.drop_column("conversations", "agent_id")
     op.drop_table("tools")
     op.drop_table("playbooks")
     op.drop_table("agents")

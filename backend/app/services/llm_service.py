@@ -112,3 +112,34 @@ def classify_intent(message: str, intent_labels: list[str]) -> tuple[str, float]
     if intent not in intent_labels:
         return "unknown", 0.0
     return intent, max(0.0, min(1.0, confidence))
+
+
+def extract_tool_arguments(message: str, tool_name: str, tool_description: str, input_schema: dict) -> dict:
+    """Uses a JSON-constrained chat completion to extract the arguments for a
+    tool call from the user's message, per `input_schema` (a JSON Schema
+    object, see app.models.agent.Tool.input_schema). Returns a dict of
+    extracted arguments (possibly missing optional/unresolvable fields);
+    callers validate the result against the schema before executing.
+    """
+    client = _client()
+    system_prompt = (
+        f"Extract the arguments needed to call the tool '{tool_name}' ({tool_description}) "
+        "from the user's message. The tool's JSON Schema is below. Respond with strict JSON "
+        "only, containing just the argument values (no extra keys, no wrapper object).\n\n"
+        f"Schema: {json.dumps(input_schema)}"
+    )
+    completion = client.chat.completions.create(
+        model=settings.openai_chat_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message},
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+    )
+    raw = completion.choices[0].message.content or "{}"
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}

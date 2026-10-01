@@ -97,3 +97,16 @@ class PlaybookOut(BaseModel):
     intent: str
     steps: list[dict]
     created_at: datetime
+
+
+class ToolOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str
+    input_schema: dict
+    permission: str
+    timeout_seconds: int
+    enabled: bool
+    created_at: datetime

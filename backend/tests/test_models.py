@@ -6,7 +6,7 @@ EXPECTED_TABLES = {
     "organizations", "users", "roles", "knowledge_bases", "documents", "document_chunks",
     "conversations", "messages", "intents", "agents", "playbooks", "tools", "agent_runs",
     "tool_calls", "evaluations", "evaluation_results", "feedback", "security_events",
-    "audit_logs", "escalations",
+    "audit_logs", "escalations", "products", "orders",
 }
 
 

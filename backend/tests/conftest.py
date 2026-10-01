@@ -18,6 +18,7 @@ from app.models.evaluation import Escalation, Evaluation, EvaluationResult, Feed
 from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # noqa: F401
 from app.models.agent import Agent, AgentRun, Playbook, Tool, ToolCall  # noqa: F401
 from app.models.commerce import Order, Product  # noqa: F401
+from app.models.learning import ReviewQueueItem, TrainingExample  # noqa: F401
 
 
 @pytest.fixture()
@@ -49,6 +50,8 @@ def _db_engine():
             SecurityEvent.__table__,
             Evaluation.__table__,
             EvaluationResult.__table__,
+            ReviewQueueItem.__table__,
+            TrainingExample.__table__,
         ],
     )
     yield engine

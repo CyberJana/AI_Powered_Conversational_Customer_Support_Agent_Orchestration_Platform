@@ -52,6 +52,7 @@ def _include_routers() -> None:
         escalations as escalations_router,
         evaluations as evaluations_router,
         knowledge_base as kb_router,
+        review_queue as review_queue_router,
         security as security_router,
         tools as tools_router,
     )
@@ -64,6 +65,7 @@ def _include_routers() -> None:
     app.include_router(tools_router.router, prefix=settings.api_v1_prefix, tags=["tools"])
     app.include_router(escalations_router.router, prefix=settings.api_v1_prefix, tags=["escalations"])
     app.include_router(evaluations_router.router, prefix=settings.api_v1_prefix, tags=["evaluations"])
+    app.include_router(review_queue_router.router, prefix=settings.api_v1_prefix, tags=["review-queue"])
     app.include_router(security_router.router, prefix=settings.api_v1_prefix, tags=["security"])
     app.include_router(analytics_router.router, prefix=settings.api_v1_prefix, tags=["analytics"])
 

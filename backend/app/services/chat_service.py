@@ -18,7 +18,11 @@ a confidence score derived from real signals (intent confidence, retrieval
 relevance, source coverage, citation grounding, tool success), and
 conversations below the applicable threshold - or matching an explicit
 trigger (human agent request, sensitive topic, tool failure, security
-event, repeated low confidence) - get a real Escalation row.
+event, repeated low confidence) - get a real Escalation row. Phase 13
+(FR-16) captures the same low-confidence/failed-tool/failed-retrieval
+turns into a ReviewQueueItem for human review (app.api.v1.review_queue);
+approved corrections are promoted into the evaluation dataset as
+TrainingExample rows (see app.evaluation.runner).
 """
 from datetime import datetime, timezone
 
@@ -28,6 +32,7 @@ from app.config import get_settings
 from app.models.agent import Agent, AgentRun, Playbook, Tool
 from app.models.conversation import Conversation, Message
 from app.models.evaluation import Escalation, SecurityEvent
+from app.models.learning import ReviewQueueItem
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, SourceRef
 from app.services import confidence_service, intent_service, rag_service, tool_service
@@ -259,10 +264,33 @@ def handle_chat_message(db: Session, user: User, payload: ChatRequest) -> ChatRe
         sources=[s.model_dump(mode="json") for s in sources] or None,
     )
     db.add(assistant_message)
+    db.flush()
 
     if escalated:
         conversation.status = "escalated"
         db.add(Escalation(conversation_id=conversation.id, reason=escalation_reason, ai_confidence=confidence))
+
+    # --- Phase 13: continuous learning capture (FR-16) ---
+    review_source_type = None
+    if tool_failed:
+        review_source_type = "failed_tool_call"
+    elif rag_attempted and answer == INSUFFICIENT_CONTEXT_ANSWER:
+        review_source_type = "failed_retrieval"
+    elif confidence < threshold:
+        review_source_type = "low_confidence"
+
+    if review_source_type:
+        db.add(
+            ReviewQueueItem(
+                organization_id=conversation.organization_id,
+                conversation_id=conversation.id,
+                message_id=assistant_message.id,
+                source_type=review_source_type,
+                input_text=payload.message,
+                output_text=answer,
+                context={"confidence": confidence, "threshold": threshold, "intent": intent},
+            )
+        )
 
     db.commit()
     db.refresh(assistant_message)

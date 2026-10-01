@@ -11,4 +11,5 @@ from app.models.evaluation import (  # noqa: F401
     SecurityEvent,
 )
 from app.models.knowledge_base import Document, DocumentChunk, KnowledgeBase  # noqa: F401
+from app.models.learning import ReviewQueueItem, TrainingExample  # noqa: F401
 from app.models.user import Organization, Role, User  # noqa: F401

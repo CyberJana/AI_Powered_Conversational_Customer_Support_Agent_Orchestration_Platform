@@ -309,8 +309,44 @@ def upgrade() -> None:
     op.create_index("ix_escalations_status", "escalations", ["status"])
     op.create_index("ix_escalations_conversation_id", "escalations", ["conversation_id"])
 
+    op.create_table(
+        "review_queue_items",
+        sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", pg.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("conversation_id", pg.UUID(as_uuid=True), sa.ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("message_id", pg.UUID(as_uuid=True), sa.ForeignKey("messages.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("source_type", sa.String(30), nullable=False),
+        sa.Column("status", sa.String(20), server_default="pending"),
+        sa.Column("input_text", sa.Text, nullable=False),
+        sa.Column("output_text", sa.Text, nullable=True),
+        sa.Column("context", pg.JSONB, server_default="{}"),
+        sa.Column("reviewed_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_review_queue_items_organization_id", "review_queue_items", ["organization_id"])
+    op.create_index("ix_review_queue_items_status", "review_queue_items", ["status"])
+
+    op.create_table(
+        "training_examples",
+        sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", pg.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("source_review_item_id", pg.UUID(as_uuid=True), sa.ForeignKey("review_queue_items.id", ondelete="SET NULL"), nullable=True),
+        sa.Column("case_type", sa.String(20), nullable=False),
+        sa.Column("message", sa.Text, nullable=False),
+        sa.Column("expected_intent", sa.String(100), nullable=True),
+        sa.Column("tool_name", sa.String(100), nullable=True),
+        sa.Column("tool_input", pg.JSONB, nullable=True),
+        sa.Column("expect_tool_success", sa.Boolean, nullable=True),
+        sa.Column("approved_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_training_examples_organization_id", "training_examples", ["organization_id"])
+
 
 def downgrade() -> None:
+    op.drop_table("training_examples")
+    op.drop_table("review_queue_items")
     op.drop_table("escalations")
     op.drop_table("audit_logs")
     op.drop_table("security_events")

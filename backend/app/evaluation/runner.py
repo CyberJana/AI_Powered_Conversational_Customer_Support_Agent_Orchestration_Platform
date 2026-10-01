@@ -19,10 +19,11 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.evaluation.dataset import INTENT_TEST_CASES, TOOL_TEST_CASES
+from app.evaluation.dataset import INTENT_TEST_CASES, TOOL_TEST_CASES, IntentTestCase, ToolTestCase
 from app.models.agent import AgentRun
 from app.models.conversation import Conversation
 from app.models.evaluation import Evaluation, EvaluationResult
+from app.models.learning import TrainingExample
 from app.services import confidence_service, intent_service, rag_service, tool_service
 from app.services.llm_service import generate_grounded_reply, track_usage
 
@@ -33,6 +34,27 @@ from app.services.llm_service import generate_grounded_reply, track_usage
 RAG_PROBE_MESSAGES = [case.message for case in INTENT_TEST_CASES[:6]]
 
 
+def _load_promoted_cases(db: Session, organization_id: uuid.UUID) -> tuple[list[IntentTestCase], list[ToolTestCase]]:
+    """FR-16: human-approved corrections (TrainingExample rows) are merged
+    into the fixed dataset for this organization's evaluation runs - the
+    only way new cases are promoted into evaluation/training data.
+    """
+    rows = db.query(TrainingExample).filter(TrainingExample.organization_id == organization_id).all()
+    intent_cases = [
+        IntentTestCase(id=f"promoted-{r.id}", message=r.message, expected_intent=r.expected_intent)
+        for r in rows
+        if r.case_type == "intent" and r.expected_intent
+    ]
+    tool_cases = [
+        ToolTestCase(
+            id=f"promoted-{r.id}", tool_name=r.tool_name, input=r.tool_input or {}, expect_success=bool(r.expect_tool_success)
+        )
+        for r in rows
+        if r.case_type == "tool" and r.tool_name
+    ]
+    return intent_cases, tool_cases
+
+
 def run_evaluation(
     db: Session,
     organization_id: uuid.UUID,
@@ -40,7 +62,11 @@ def run_evaluation(
     created_by: uuid.UUID | None = None,
     knowledge_base_id: uuid.UUID | None = None,
 ) -> Evaluation:
-    dataset_size = len(INTENT_TEST_CASES) + len(TOOL_TEST_CASES) + (len(RAG_PROBE_MESSAGES) if knowledge_base_id else 0)
+    promoted_intent_cases, promoted_tool_cases = _load_promoted_cases(db, organization_id)
+    intent_cases = INTENT_TEST_CASES + promoted_intent_cases
+    tool_cases = TOOL_TEST_CASES + promoted_tool_cases
+
+    dataset_size = len(intent_cases) + len(tool_cases) + (len(RAG_PROBE_MESSAGES) if knowledge_base_id else 0)
     evaluation = Evaluation(
         organization_id=organization_id, name=name, dataset_size=dataset_size, created_by=created_by, status="running"
     )
@@ -48,18 +74,19 @@ def run_evaluation(
     db.flush()
 
     with track_usage() as usage:
-        intent_metrics = _run_intent_cases(db, evaluation.id)
-        tool_metrics = _run_tool_cases(db, evaluation.id, organization_id)
+        intent_metrics = _run_intent_cases(db, evaluation.id, intent_cases)
+        tool_metrics = _run_tool_cases(db, evaluation.id, organization_id, tool_cases)
         rag_metrics = (
             _run_rag_cases(db, evaluation.id, knowledge_base_id) if knowledge_base_id else None
         )
 
-    escalation_rate = _estimate_escalation_rate(intent_metrics, rag_metrics)
+    escalation_rate = _estimate_escalation_rate(intent_metrics, len(intent_cases), rag_metrics)
 
     summary = {
         "intent_accuracy": intent_metrics["accuracy"],
         "tool_success_rate": tool_metrics["success_rate"],
         "escalation_rate": escalation_rate,
+        "promoted_examples_count": len(promoted_intent_cases) + len(promoted_tool_cases),
         "avg_latency_ms": round(
             (intent_metrics["total_latency_ms"] + tool_metrics["total_latency_ms"]
              + (rag_metrics["total_latency_ms"] if rag_metrics else 0.0))
@@ -90,11 +117,11 @@ def run_evaluation(
     return evaluation
 
 
-def _run_intent_cases(db: Session, evaluation_id: uuid.UUID) -> dict:
+def _run_intent_cases(db: Session, evaluation_id: uuid.UUID, cases: list[IntentTestCase]) -> dict:
     correct = 0
     total_latency_ms = 0.0
     low_confidence_count = 0
-    for case in INTENT_TEST_CASES:
+    for case in cases:
         start = time.monotonic()
         intent, confidence = intent_service.classify(case.message)
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -120,13 +147,15 @@ def _run_intent_cases(db: Session, evaluation_id: uuid.UUID) -> dict:
         )
 
     return {
-        "accuracy": correct / len(INTENT_TEST_CASES) if INTENT_TEST_CASES else 0.0,
+        "accuracy": correct / len(cases) if cases else 0.0,
         "total_latency_ms": total_latency_ms,
         "low_confidence_count": low_confidence_count,
     }
 
 
-def _run_tool_cases(db: Session, evaluation_id: uuid.UUID, organization_id: uuid.UUID) -> dict:
+def _run_tool_cases(
+    db: Session, evaluation_id: uuid.UUID, organization_id: uuid.UUID, cases: list[ToolTestCase]
+) -> dict:
     # A real Conversation + AgentRun anchor the evaluation's ToolCall rows so
     # FR-12's audit trail applies to evaluation runs too, not just live chat.
     conversation = Conversation(organization_id=organization_id, status="evaluation")
@@ -140,7 +169,7 @@ def _run_tool_cases(db: Session, evaluation_id: uuid.UUID, organization_id: uuid
     correct = 0
     total_latency_ms = 0.0
 
-    for case in TOOL_TEST_CASES:
+    for case in cases:
         start = time.monotonic()
         tool_call = tool_service.execute_tool(db, agent_run.id, case.tool_name, case.input, ctx)
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -169,7 +198,7 @@ def _run_tool_cases(db: Session, evaluation_id: uuid.UUID, organization_id: uuid
     db.flush()
 
     return {
-        "success_rate": correct / len(TOOL_TEST_CASES) if TOOL_TEST_CASES else 0.0,
+        "success_rate": correct / len(cases) if cases else 0.0,
         "total_latency_ms": total_latency_ms,
     }
 
@@ -226,13 +255,13 @@ def _run_rag_cases(db: Session, evaluation_id: uuid.UUID, knowledge_base_id: uui
     }
 
 
-def _estimate_escalation_rate(intent_metrics: dict, rag_metrics: dict | None) -> float:
+def _estimate_escalation_rate(intent_metrics: dict, total_intent_cases: int, rag_metrics: dict | None) -> float:
     """Fraction of evaluated cases whose composite confidence would fall
     below the default threshold - a real measurement of the same
     confidence_service used by live chat, not a separate fabricated stat.
     """
     low_confidence = intent_metrics["low_confidence_count"]
-    total = len(INTENT_TEST_CASES) or 1
+    total = total_intent_cases or 1
     if rag_metrics is not None and rag_metrics["hallucination_rate"] is not None:
         # Blend in RAG-side low-groundedness turns as additional escalation-worthy cases.
         low_confidence += round(rag_metrics["hallucination_rate"] * len(RAG_PROBE_MESSAGES))

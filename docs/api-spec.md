@@ -95,6 +95,16 @@ Request: `{ "conversation_id": "uuid", "reason": "string" }`
 ### POST /api/v1/evaluations/run (admin) — runs the fixed labeled dataset (intent accuracy, tool success) synchronously; pass `{ "name": "string", "knowledge_base_id": "uuid|null" }` to also include RAG retrieval/groundedness/hallucination-rate metrics against that knowledge base. Response includes a `summary` with `intent_accuracy`, `tool_success_rate`, `escalation_rate`, `avg_latency_ms`, `token_usage`, and (when a KB was supplied) `retrieval_sufficient_rate`, `avg_retrieval_relevance`, `groundedness`, `hallucination_rate`.
 ### GET /api/v1/evaluations/{id} (admin) — report detail with per-test-case `results`.
 
+## Continuous Learning
+
+Low-confidence replies, failed tool calls, insufficient-context retrievals (captured automatically by the chat pipeline), and negative (`"down"`) feedback (captured by `POST /conversations/{id}/feedback`) are queued for human review. Only approved items are promoted into the evaluation dataset.
+
+### GET /api/v1/review-queue (agent/admin) — queue with filters: `status` (`pending|approved|rejected`), `source_type` (`low_confidence|negative_feedback|failed_tool_call|failed_retrieval`).
+### POST /api/v1/review-queue/{id}/approve (agent/admin)
+Request: `{ "case_type": "intent|tool", "expected_intent": "string|null", "tool_name": "string|null", "tool_input": "object|null", "expect_tool_success": "bool|null" }` → creates a `TrainingExample` row merged into this organization's future evaluation runs.
+### POST /api/v1/review-queue/{id}/reject (agent/admin)
+### GET /api/v1/training-examples (admin) — promoted corrections for this organization.
+
 ## Security
 
 ### GET /api/v1/security/events (admin) — paginated security_events.

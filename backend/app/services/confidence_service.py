@@ -39,6 +39,11 @@ SENSITIVE_KEYWORDS = (
 #: Consecutive low-confidence assistant turns before "repeated failure" fires.
 REPEATED_FAILURE_WINDOW = 2
 
+#: Fallback threshold used wherever no Agent-specific confidence_threshold
+#: applies (e.g. the evaluation harness, or a conversation with no linked
+#: Agent). Mirrors app.config.Settings.default_confidence_threshold.
+DEFAULT_CONFIDENCE_THRESHOLD = 0.6
+
 
 @dataclass
 class ConfidenceSignals:

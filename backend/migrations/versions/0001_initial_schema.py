@@ -239,6 +239,7 @@ def upgrade() -> None:
     op.create_table(
         "evaluations",
         sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", pg.UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("dataset_size", sa.Integer, server_default="0"),
         sa.Column("started_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
@@ -247,6 +248,7 @@ def upgrade() -> None:
         sa.Column("created_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("summary", pg.JSONB, server_default="{}"),
     )
+    op.create_index("ix_evaluations_organization_id", "evaluations", ["organization_id"])
 
     op.create_table(
         "evaluation_results",

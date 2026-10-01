@@ -91,9 +91,9 @@ Request: `{ "conversation_id": "uuid", "reason": "string" }`
 
 ## Evaluation
 
-### GET /api/v1/evaluations (admin) — list evaluation runs.
-### POST /api/v1/evaluations/run (admin) — triggers evaluation runner.
-### GET /api/v1/evaluations/{id} (admin) — report detail.
+### GET /api/v1/evaluations (admin) — list evaluation runs (org-scoped).
+### POST /api/v1/evaluations/run (admin) — runs the fixed labeled dataset (intent accuracy, tool success) synchronously; pass `{ "name": "string", "knowledge_base_id": "uuid|null" }` to also include RAG retrieval/groundedness/hallucination-rate metrics against that knowledge base. Response includes a `summary` with `intent_accuracy`, `tool_success_rate`, `escalation_rate`, `avg_latency_ms`, `token_usage`, and (when a KB was supplied) `retrieval_sufficient_rate`, `avg_retrieval_relevance`, `groundedness`, `hallucination_rate`.
+### GET /api/v1/evaluations/{id} (admin) — report detail with per-test-case `results`.
 
 ## Security
 
